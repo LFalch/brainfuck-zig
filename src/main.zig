@@ -2,7 +2,7 @@ const std = @import("std");
 const io = std.io;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayListAligned = std.ArrayListAligned;
+const ArrayList = std.ArrayList;
 
 fn readSrc(alloc: Allocator, filename: [:0]const u8) ![]u8 {
     var file = try std.fs.cwd().openFile(filename, .{});
@@ -18,16 +18,19 @@ pub fn main() anyerror!void {
     var args = std.process.args();
     _ = args.skip();
 
-    const filename = args.next() orelse return error.Failure;
+    const filename = args.next() orelse return error.NoArgumentGiven;
 
     const src = try readSrc(allocator, filename);
+    defer allocator.free(src);
     var srcPtr: usize = 0;
 
-    var data = ArrayListAligned(u8, @alignOf(u8)).init(allocator);
+    var data = ArrayList(u8).init(allocator);
+    defer data.deinit();
     var dataPtr: usize = 0;
     try data.append(0);
 
-    var jumpStack = ArrayListAligned(usize, @alignOf(usize)).init(allocator);
+    var jumpStack = ArrayList(usize).init(allocator);
+    defer jumpStack.deinit();
 
     const stdout = io.getStdOut().writer();
     const stdin = io.getStdIn().reader();
@@ -69,11 +72,10 @@ pub fn main() anyerror!void {
                     try data.append(0);
                 }
             },
-            '.' => try stdout.writeAll(&[1]u8{data.items[dataPtr]}),
-            ',' => {
-                var buf = [1]u8{undefined};
-                _ = try stdin.readAll(&buf);
-                data.items[dataPtr] = buf[0];
+            '.' => try stdout.writeByte(data.items[dataPtr]),
+            ',' => data.items[dataPtr] = (stdin.readByte()) catch |e| switch (e) {
+                error.EndOfStream => break,
+                else => return e,
             },
             '[' => {
                 nesting += 1;
