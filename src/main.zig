@@ -32,8 +32,10 @@ pub fn main() anyerror!void {
     var jumpStack = ArrayList(usize).init(allocator);
     defer jumpStack.deinit();
 
-    const stdout = io.getStdOut().writer();
-    const stdin = io.getStdIn().reader();
+    var stdout_buf = io.bufferedWriter(io.getStdOut().writer());
+    const stdout = stdout_buf.writer();
+    var stdin_buf = io.bufferedReader(io.getStdIn().reader());
+    const stdin = stdin_buf.reader();
 
     var nesting: u32 = 0;
     var target_nesting: ?u32 = null;
@@ -65,7 +67,12 @@ pub fn main() anyerror!void {
         switch (c) {
             '+' => data.items[dataPtr] +%= 1,
             '-' => data.items[dataPtr] -%= 1,
-            '<' => dataPtr -= 1,
+            '<' => {
+                if (dataPtr == 0) {
+                    return error.DataPointerBeforeStart;
+                }
+                dataPtr -= 1;
+            },
             '>' => {
                 dataPtr += 1;
                 if (dataPtr >= data.items.len) {
@@ -87,9 +94,12 @@ pub fn main() anyerror!void {
             },
             ']' => {
                 nesting -= 1;
-                srcPtr = jumpStack.pop();
+                const jmpTarget = jumpStack.popOrNull() orelse return error.UnmatchedEndLoop;
+                srcPtr = jmpTarget;
             },
             else => {},
         }
     }
+
+    try stdout_buf.flush();
 }
