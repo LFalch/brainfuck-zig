@@ -2,7 +2,7 @@ const std = @import("std");
 const io = std.io;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayList = std.ArrayList;
+const ArrayList = std.ArrayListUnmanaged;
 
 fn readSrc(alloc: Allocator, filename: [:0]const u8) ![]u8 {
     var file = try std.fs.cwd().openFile(filename, .{});
@@ -24,13 +24,13 @@ pub fn main() anyerror!void {
     defer allocator.free(src);
     var srcPtr: usize = 0;
 
-    var data = ArrayList(u8).init(allocator);
-    defer data.deinit();
+    var data = ArrayList(u8).empty;
+    defer data.deinit(allocator);
     var dataPtr: usize = 0;
-    try data.append(0);
+    try data.append(allocator, 0);
 
-    var jumpStack = ArrayList(usize).init(allocator);
-    defer jumpStack.deinit();
+    var jumpStack = ArrayList(usize).empty;
+    defer jumpStack.deinit(allocator);
 
     var stdout_buf = io.bufferedWriter(io.getStdOut().writer());
     const stdout = stdout_buf.writer();
@@ -40,12 +40,8 @@ pub fn main() anyerror!void {
     var nesting: u32 = 0;
     var target_nesting: ?u32 = null;
 
-    while (true) {
-        if (srcPtr >= src.len) {
-            break;
-        }
+    while (srcPtr < src.len) : (srcPtr += 1) {
         const c = src[srcPtr];
-        srcPtr += 1;
 
         if (target_nesting) |target| {
             switch (c) {
@@ -76,7 +72,7 @@ pub fn main() anyerror!void {
             '>' => {
                 dataPtr += 1;
                 if (dataPtr >= data.items.len) {
-                    try data.append(0);
+                    try data.append(allocator, 0);
                 }
             },
             '.' => try stdout.writeByte(data.items[dataPtr]),
@@ -87,14 +83,14 @@ pub fn main() anyerror!void {
             '[' => {
                 nesting += 1;
                 if (data.items[dataPtr] != 0) {
-                    try jumpStack.append(srcPtr - 1);
+                    try jumpStack.append(allocator, srcPtr - 1);
                 } else {
                     target_nesting = nesting - 1;
                 }
             },
             ']' => {
                 nesting -= 1;
-                const jmpTarget = jumpStack.popOrNull() orelse return error.UnmatchedEndLoop;
+                const jmpTarget = jumpStack.pop() orelse return error.UnmatchedEndLoop;
                 srcPtr = jmpTarget;
             },
             else => {},
